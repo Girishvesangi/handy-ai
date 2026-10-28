@@ -1,0 +1,36 @@
+{
+  "guideid": 1001,
+  "title": "Lenovo ThinkPad T480 RAM Replacement",
+  "category": "Lenovo ThinkPad T480",
+  "subject": "RAM",
+  "url": "https://www.ifixit.com/Guide/Lenovo+ThinkPad+T480+RAM+Replacement/1001",
+  "difficulty": "Easy",
+  "time_required": "10 minutes",
+  "introduction_raw": "Use this guide to add or replace a '''RAM''' module.",
+  "tools": [{"text": "Phillips #1 Screwdriver"}, {"text": "Spudger"}],
+  "steps": [
+    {
+      "title": "Bottom cover",
+      "lines": [
+        {"text_raw": "Shut down the laptop and unplug the charger.", "bullet": "black", "level": 0},
+        {"text_raw": "Loosen the eight captive screws on the [link|https://example.com|bottom cover].", "bullet": "black", "level": 0}
+      ],
+      "media": {"type": "image", "data": [{"id": 1, "guid": "a", "mini": "https://img.example/1.mini", "standard": "https://img.example/1.standard", "large": "https://img.example/1.large"}]}
+    },
+    {
+      "title": "",
+      "lines": [
+        {"text_raw": "[icon_caution] Disconnect the internal battery connector before touching anything else.", "bullet": "red", "level": 0}
+      ],
+      "media": {"type": "image", "data": [{"id": 2, "guid": "b", "standard": "https://img.example/2.standard"}]}
+    },
+    {
+      "title": "RAM module",
+      "lines": [
+        {"text_raw": "Spread the retaining clips and lift the RAM module out at an angle.", "bullet": "black", "level": 0},
+        {"text_raw": "", "bullet": "black", "level": 0}
+      ],
+      "media": {"type": "video", "data": {}}
+    }
+  ]
+}

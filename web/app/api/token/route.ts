@@ -5,13 +5,21 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-export async function POST() {
-  const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = process.env;
+export async function POST(req: Request) {
+  const { LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, ACCESS_CODE } = process.env;
   if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
     return NextResponse.json(
       { error: "LiveKit env vars are missing. See web/.env.example." },
       { status: 500 },
     );
+  }
+
+  // Optional gate for public demos, so strangers can't run up your API bill.
+  if (ACCESS_CODE) {
+    const body = await req.json().catch(() => ({}));
+    if (body.code !== ACCESS_CODE) {
+      return NextResponse.json({ error: "Access code required", needsCode: true }, { status: 401 });
+    }
   }
 
   // A fresh room per session. The agent joins any new room automatically.

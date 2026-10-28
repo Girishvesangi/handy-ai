@@ -1,39 +1,66 @@
 "use client";
 
-import {
-  LiveKitRoom,
-  RoomAudioRenderer,
-  VideoTrack,
-  useLocalParticipant,
-  useVoiceAssistant,
-} from "@livekit/components-react";
-import { Track } from "livekit-client";
+import { LiveKitRoom, RoomAudioRenderer } from "@livekit/components-react";
+import Link from "next/link";
 import { useState } from "react";
+import Session from "./components/Session";
 
 type Connection = { serverUrl: string; token: string };
 
 export default function Home() {
   const [conn, setConn] = useState<Connection | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [needsCode, setNeedsCode] = useState(false);
+  const [code, setCode] = useState("");
 
   async function start() {
     setError(null);
-    const res = await fetch("/api/token", { method: "POST" });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error ?? "Could not get a token");
-      return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (data.needsCode) setNeedsCode(true);
+      if (!res.ok) throw new Error(data.error ?? "Could not get a token");
+      setConn(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
     }
-    setConn(data);
   }
 
   if (!conn) {
     return (
-      <main className="center">
+      <main className="landing">
         <h1>Handy</h1>
-        <p>Point your camera at a laptop and ask &quot;what is this?&quot;</p>
-        <button onClick={start}>Start</button>
+        <p className="tagline">A repair buddy that sees what you see.</p>
+        <ol className="how">
+          <li>Point your phone camera at your laptop.</li>
+          <li>Say what you want to fix. Handy finds the iFixit guide.</li>
+          <li>It talks you through each step and checks your work.</li>
+        </ol>
+        {needsCode && (
+          <input
+            className="code"
+            type="password"
+            placeholder="Access code"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+          />
+        )}
+        <button onClick={start} disabled={loading}>
+          {loading ? "Connecting…" : "Start a repair"}
+        </button>
         {error && <p className="error">{error}</p>}
+        <p className="safety">Always shut down and unplug a laptop before opening it.</p>
+        <Link href="/evals" className="muted">
+          How accurate is it? See the evals
+        </Link>
       </main>
     );
   }
@@ -45,37 +72,13 @@ export default function Home() {
       connect
       audio
       // "environment" asks phones for the back camera.
-      video={{ facingMode: "environment" }}
+      video={{ facingMode: "environment", resolution: { width: 1280, height: 720 } }}
       onDisconnected={() => setConn(null)}
+      onError={(e) => setError(e.message)}
       className="room"
     >
       <Session onStop={() => setConn(null)} />
-      {/* Plays the agent's voice through your speaker. */}
       <RoomAudioRenderer />
     </LiveKitRoom>
-  );
-}
-
-function Session({ onStop }: { onStop: () => void }) {
-  const { state } = useVoiceAssistant();
-  const { cameraTrack, localParticipant } = useLocalParticipant();
-
-  return (
-    <main className="session">
-      {cameraTrack ? (
-        <VideoTrack
-          trackRef={{
-            participant: localParticipant,
-            publication: cameraTrack,
-            source: Track.Source.Camera,
-          }}
-          className="camera"
-        />
-      ) : (
-        <div className="camera placeholder">Waiting for camera…</div>
-      )}
-      <div className="status">Handy is {state}</div>
-      <button onClick={onStop}>Stop</button>
-    </main>
   );
 }
