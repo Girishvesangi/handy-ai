@@ -17,3 +17,7 @@ next-env.d.ts
 
 # OS
 .DS_Store
+
+# Handy runtime data
+agent/logs/
+agent/evals/results/
