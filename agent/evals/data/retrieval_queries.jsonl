@@ -1,0 +1,33 @@
+{"query": "my macbook air won't hold a charge anymore", "must": ["macbook air", "battery"]}
+{"query": "replace the battery on a 2015 macbook air", "must": ["macbook air", "battery"]}
+{"query": "macbook pro battery is swollen and the trackpad is bulging", "must": ["macbook pro", "battery"]}
+{"query": "upgrade the ssd in my macbook pro", "must": ["macbook pro", "ssd|solid state|hard drive"]}
+{"query": "my macbook trackpad stopped clicking", "must": ["macbook", "trackpad"]}
+{"query": "some keys on my macbook keyboard don't work", "must": ["macbook", "keyboard"]}
+{"query": "macbook fan is really loud", "must": ["macbook", "fan"]}
+{"query": "thinkpad battery replacement", "must": ["thinkpad", "battery"]}
+{"query": "add more ram to my lenovo thinkpad", "must": ["thinkpad", "ram|memory"]}
+{"query": "swap the hard drive for an ssd in a thinkpad", "must": ["thinkpad", "ssd|hard drive|storage"]}
+{"query": "replace a broken thinkpad keyboard", "must": ["thinkpad", "keyboard"]}
+{"query": "dell xps 13 battery dies fast", "must": ["xps", "battery"]}
+{"query": "install a bigger ssd in my dell xps", "must": ["xps", "ssd|solid state|storage"]}
+{"query": "upgrade memory on a dell inspiron", "must": ["inspiron", "ram|memory"]}
+{"query": "dell latitude battery swap", "must": ["latitude", "battery"]}
+{"query": "hp pavilion battery replacement", "must": ["pavilion", "battery"]}
+{"query": "put more ram in my hp laptop", "must": ["hp", "ram|memory"]}
+{"query": "replace the ssd in an hp elitebook", "must": ["elitebook", "ssd|hard drive|storage"]}
+{"query": "acer aspire hard drive is failing", "must": ["aspire", "hard drive|hdd|ssd"]}
+{"query": "upgrade ram on my acer laptop", "must": ["acer", "ram|memory"]}
+{"query": "asus zenbook battery replacement", "must": ["zenbook", "battery"]}
+{"query": "replace the ssd in my asus laptop", "must": ["asus", "ssd|hard drive|storage"]}
+{"query": "my laptop is overheating, how do I clean the fan", "must": ["fan|heat sink|heatsink"]}
+{"query": "reapply thermal paste on a laptop cpu", "must": ["thermal paste|heat sink|heatsink"]}
+{"query": "laptop keeps losing the date and time", "must": ["cmos|pram|clock battery"]}
+{"query": "cracked laptop screen replacement", "must": ["screen|display|lcd"]}
+{"query": "charger port is loose on my laptop", "must": ["dc jack|dc-in|power jack|charging port"]}
+{"query": "how do I take off the bottom case", "must": ["bottom case|lower case|bottom cover|back cover|base"]}
+{"query": "surface laptop battery replacement", "must": ["surface laptop", "battery"]}
+{"query": "chromebook battery won't charge", "must": ["chromebook", "battery"]}
+{"query": "replace the wifi card on my laptop", "must": ["wifi|wi-fi|wireless|airport"]}
+{"query": "A1466 battery", "must": ["macbook air", "battery"]}
+{"query": "T480 ram upgrade", "must": ["t480", "ram|memory"]}
