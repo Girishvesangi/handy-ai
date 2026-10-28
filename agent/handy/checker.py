@@ -135,3 +135,75 @@ class StepChecker:
         )
         latency_ms = int((time.perf_counter() - start) * 1000)
         return parse_result(resp.text or "", latency_ms)
+
+
+# ---- Pointer: where on the camera image should the user act next? --------
+
+LOCATE_PROMPT = """You help someone repairing a laptop by pointing at the part
+they need to work on for this step, in a photo from their phone camera.
+
+Guide: {guide_title}
+Step {number}: {step_title}
+Instructions: {instructions}
+
+Find the single part the user should touch or look at for this step (for
+example a screw, connector, cable, battery, RAM stick). If it is visible,
+return its bounding box as box_2d = [ymin, xmin, ymax, xmax], with each value
+normalized to 0-1000, and a short label of 1 to 4 words. If it is not visible,
+set found to false."""
+
+LOCATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "found": {"type": "boolean"},
+        "label": {"type": "string"},
+        "box_2d": {"type": "array", "items": {"type": "integer"}},
+    },
+    "required": ["found", "label"],
+}
+
+
+@dataclass
+class Pointer:
+    found: bool
+    label: str
+    box: list[float]  # [ymin, xmin, ymax, xmax] as fractions 0-1 of the image
+    latency_ms: int = 0
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def parse_pointer(text: str, latency_ms: int = 0) -> Pointer:
+    """Turn the model's 0-1000 box into 0-1 fractions; anything odd means "not found"."""
+    try:
+        data = json.loads(text)
+        box = data.get("box_2d") or []
+        if not data.get("found") or len(box) != 4:
+            return Pointer(False, str(data.get("label", "")), [], latency_ms)
+        ymin, xmin, ymax, xmax = (min(max(float(v), 0.0), 1000.0) / 1000 for v in box)
+        if ymax <= ymin or xmax <= xmin:
+            return Pointer(False, str(data.get("label", "")), [], latency_ms)
+        return Pointer(True, str(data.get("label", "")), [ymin, xmin, ymax, xmax], latency_ms)
+    except (ValueError, TypeError, AttributeError, json.JSONDecodeError):
+        return Pointer(False, "", [], latency_ms)
+
+
+async def locate_part(checker: StepChecker, guide: Guide, step: Step, frame_jpeg: bytes) -> Pointer:
+    prompt = LOCATE_PROMPT.format(
+        guide_title=guide.title,
+        number=step.number,
+        step_title=step.title or "(untitled)",
+        instructions=step.text or "(no text)",
+    )
+    start = time.perf_counter()
+    resp = await checker._client.aio.models.generate_content(
+        model=checker._model,
+        contents=[prompt, types.Part.from_bytes(data=frame_jpeg, mime_type="image/jpeg")],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_json_schema=LOCATE_SCHEMA,
+            temperature=0.0,
+        ),
+    )
+    return parse_pointer(resp.text or "", int((time.perf_counter() - start) * 1000))

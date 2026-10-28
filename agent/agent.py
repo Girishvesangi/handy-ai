@@ -34,11 +34,12 @@ from livekit.agents import (
 )
 from livekit.plugins import google
 
-from handy.checker import CheckResult, StepChecker
+from handy.checker import CheckResult, Pointer, StepChecker, locate_part
 from handy.eventlog import EventLog
 from handy.frames import LatestFrame
 from handy.guides import load_guides
 from handy.search import GuideIndex
+from handy.tracing import setup_langfuse
 from handy.tracker import StepTracker
 
 load_dotenv()
@@ -49,6 +50,8 @@ LIVE_MODEL = os.getenv("GEMINI_LIVE_MODEL") or "gemini-3.8-live"
 WATCH_INTERVAL_S = float(os.getenv("WATCH_INTERVAL_S") or 8)
 # Only interrupt the user when the checker is at least this sure something is wrong.
 WARN_CONFIDENCE = float(os.getenv("WARN_CONFIDENCE") or 0.75)
+# Automatically point at the part to touch whenever a new step starts (one extra vision call per step).
+POINTER_AUTO = (os.getenv("POINTER_AUTO") or "1") not in ("0", "false", "no")
 
 INSTRUCTIONS = """
 You are Handy, a friendly, patient laptop repair helper who can see the
@@ -68,12 +71,17 @@ How to help:
    closer or add light.
 5. "Back", "repeat", "skip to step 5" map to previous_step, repeat_step,
    go_to_step.
+6. "Where is it?", "which one?", "show me" -> call point_to_part. The app
+   draws a box around the part on the user's screen.
+7. When the last step is done, congratulate them and summarize briefly.
 
 Rules:
 - Only describe what you can actually see. Never guess a model number.
 - Safety first: before opening a laptop, remind them to shut it down and
   unplug the charger. Warn about swollen batteries and never puncturing them.
 - If no guide fits, say so honestly and give general careful advice.
+- Speak the same language the user speaks. Guides are in English, so
+  translate steps naturally when you read them.
 """
 
 
@@ -88,6 +96,7 @@ class Handy(Agent):
         self.frames = LatestFrame(room)
         self._check_lock = asyncio.Lock()
         self._last_warning = ""
+        self._locate_task: asyncio.Task | None = None
         self._embedder = None
         if index.has_embeddings:
             from handy.embeddings import Embedder
@@ -103,6 +112,15 @@ class Handy(Agent):
     async def publish_check(self, result: CheckResult, step_number: int) -> None:
         payload = json.dumps({**result.to_dict(), "step": step_number})
         await self.room.local_participant.publish_data(payload, reliable=True, topic="handy.check")
+
+    async def publish_pointer(self, pointer: Pointer, step_number: int, size: tuple[int, int] | None) -> None:
+        w, h = size or (0, 0)
+        payload = json.dumps({**pointer.to_dict(), "step": step_number, "frame_w": w, "frame_h": h})
+        await self.room.local_participant.publish_data(payload, reliable=True, topic="handy.pointer")
+
+    async def publish_recap(self) -> None:
+        payload = json.dumps(self.tracker.recap())
+        await self.room.local_participant.publish_data(payload, reliable=True, topic="handy.recap")
 
     # ---- shared actions (used by voice tools and by the UI buttons) -------
 
@@ -122,6 +140,7 @@ class Handy(Agent):
                 return CheckResult("unclear", 0.0, "The checker could not be reached.", "Try again in a moment.")
         if result.verdict == "done":
             self.tracker.completed.add(step.number)
+        self.tracker.record_check(result.verdict, result.reason)
         self.log.write(
             "check",
             source=source,
@@ -133,14 +152,46 @@ class Handy(Agent):
         await self.publish_state()
         return result
 
+    async def run_locate(self, source: str) -> Pointer | None:
+        """Ask the vision model where the part for the current step is, and draw it in the app."""
+        step = self.tracker.current
+        frame = self.frames.jpeg()
+        if step is None or frame is None:
+            return None
+        try:
+            pointer = await locate_part(self.checker, self.tracker.guide, step, frame)
+        except Exception as e:
+            logger.warning("locate failed: %s", e)
+            return None
+        if self.tracker.current is not step:
+            return None  # the user moved on while we were looking
+        self.log.write("locate", source=source, step=step.number, **pointer.to_dict())
+        await self.publish_pointer(pointer, step.number, self.frames.size())
+        return pointer
+
+    def auto_locate(self) -> None:
+        """Point at the new step's part in the background, without delaying the voice."""
+        if not POINTER_AUTO:
+            return
+        if self._locate_task and not self._locate_task.done():
+            self._locate_task.cancel()
+        self._locate_task = asyncio.create_task(self.run_locate("auto"))
+
     async def move(self, action: str, number: int | None = None) -> str:
         before = self.tracker.current.number if self.tracker.current else None
         if action == "next":
             step = self.tracker.next()
             if step is None and self.tracker.active:
-                self.log.write("guide_finished", guide_id=self.tracker.guide.id)
+                recap = self.tracker.recap()
+                self.log.write("guide_finished", **recap)
                 await self.publish_state()
-                return "That was the last step. The repair guide is complete."
+                await self.publish_recap()
+                caught = len(recap["mistakes_caught"])
+                return (
+                    f"That was the last step. The repair is complete: {recap['steps_completed']} of "
+                    f"{recap['total_steps']} steps confirmed in {recap['minutes']} minutes, "
+                    f"{caught} mistake{'s' if caught != 1 else ''} caught along the way."
+                )
         elif action == "previous":
             self.tracker.previous()
         elif action == "goto" and number is not None:
@@ -149,6 +200,8 @@ class Handy(Agent):
         after = self.tracker.current.number if self.tracker.current else None
         self.log.write("step", action=action, before=before, after=after)
         await self.publish_state()
+        if after is not None and after != before:
+            self.auto_locate()
         return self.tracker.describe_current()
 
     # ---- voice tools ------------------------------------------------------
@@ -193,6 +246,7 @@ class Handy(Agent):
         self._last_warning = ""
         self.log.write("guide_started", guide_id=guide.id, title=guide.title)
         await self.publish_state()
+        self.auto_locate()
         tools = ", ".join(guide.tools) if guide.tools else "not listed"
         return (
             f"Started '{guide.title}' ({len(guide.steps)} steps, difficulty {guide.difficulty or 'unknown'}). "
@@ -230,6 +284,18 @@ class Handy(Agent):
         if result is None:
             return "No guide is active, so there is no step to check."
         return json.dumps(result.to_dict())
+
+    @function_tool()
+    async def point_to_part(self, context: RunContext) -> str:
+        """Find the part for the current step in the camera view and highlight it on the user's screen."""
+        if not self.tracker.active:
+            return "No guide is active."
+        pointer = await self.run_locate("voice")
+        if pointer is None:
+            return "Couldn't look at the camera right now."
+        if not pointer.found:
+            return "The part isn't visible. Ask the user to move the camera so the whole area is in view."
+        return f"Highlighted the {pointer.label} on the user's screen with a box. Tell them to look at the box."
 
     @function_tool()
     async def stop_guide(self, context: RunContext) -> str:
@@ -271,6 +337,8 @@ async def entrypoint(ctx: JobContext) -> None:
     if not index.guides:
         logger.warning("No guides loaded. Run `python -m handy.ingest` first.")
     log = EventLog(ctx.room.name)
+    if setup_langfuse(ctx.room.name):
+        log.write("tracing", backend="langfuse")
     log.write("session_started", guides=len(index.guides), hybrid=index.has_embeddings)
 
     agent = Handy(ctx.room, index, log)
@@ -278,6 +346,9 @@ async def entrypoint(ctx: JobContext) -> None:
 
     # Buttons in the web app call these over RPC. After each, the agent says the new step.
     async def on_button(action: str) -> str:
+        if action == "point":
+            await agent.run_locate("button")
+            return "ok"
         if action == "check":
             result = await agent.run_check("button")
             if result:
@@ -303,6 +374,10 @@ async def entrypoint(ctx: JobContext) -> None:
     async def _check(data: rtc.RpcInvocationData) -> str:
         return await on_button("check")
 
+    @lp.register_rpc_method("handy.point")
+    async def _point(data: rtc.RpcInvocationData) -> str:
+        return await on_button("point")
+
     await session.start(
         agent=agent,
         room=ctx.room,
@@ -314,10 +389,23 @@ async def entrypoint(ctx: JobContext) -> None:
     async def cleanup() -> None:
         if watcher:
             watcher.cancel()
+        if agent._locate_task:
+            agent._locate_task.cancel()
         await agent.frames.aclose()
         log.write("session_ended")
 
     ctx.add_shutdown_callback(cleanup)
+
+    # The web app can ask for a language through the participant's metadata.
+    user = await ctx.wait_for_participant()
+    language = ""
+    try:
+        language = json.loads(user.metadata or "{}").get("language", "")
+    except json.JSONDecodeError:
+        pass
+    if language:
+        await agent.update_instructions(f"{INSTRUCTIONS}\nAlways speak {language}, whatever language the guide is in.")
+        log.write("language", language=language)
 
     await session.generate_reply(
         instructions="Greet the user in one sentence and ask what they'd like to fix on their laptop."

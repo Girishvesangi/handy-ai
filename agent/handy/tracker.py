@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 
 from .guides import Guide, Step
@@ -12,6 +13,9 @@ class StepTracker:
     guide: Guide | None = None
     index: int = 0  # 0-based into guide.steps
     completed: set[int] = field(default_factory=set)  # step numbers the checker or user confirmed
+    started_at: float = 0.0
+    warnings: list[dict] = field(default_factory=list)  # mistakes the checker caught: {"step", "reason"}
+    checks: int = 0
 
     @property
     def active(self) -> bool:
@@ -27,7 +31,13 @@ class StepTracker:
 
     def start(self, guide: Guide) -> Step | None:
         self.guide, self.index, self.completed = guide, 0, set()
+        self.started_at, self.warnings, self.checks = time.time(), [], 0
         return self.current
+
+    def record_check(self, verdict: str, reason: str) -> None:
+        self.checks += 1
+        if verdict == "wrong" and self.current:
+            self.warnings.append({"step": self.current.number, "reason": reason})
 
     def next(self) -> Step | None:
         """Advance one step. Returns None when the guide is finished."""
@@ -51,6 +61,22 @@ class StepTracker:
 
     def stop(self) -> None:
         self.guide, self.index, self.completed = None, 0, set()
+        self.started_at, self.warnings, self.checks = 0.0, [], 0
+
+    def recap(self) -> dict:
+        """Summary shown when a guide is finished."""
+        if not self.active:
+            return {}
+        return {
+            "guide_id": self.guide.id,
+            "title": self.guide.title,
+            "url": self.guide.url,
+            "total_steps": len(self.guide.steps),
+            "steps_completed": len(self.completed),
+            "minutes": round((time.time() - self.started_at) / 60, 1) if self.started_at else 0,
+            "checks": self.checks,
+            "mistakes_caught": self.warnings,
+        }
 
     def state(self) -> dict:
         """What the web app needs to draw the step card."""
@@ -64,6 +90,9 @@ class StepTracker:
                 "device": self.guide.device,
                 "url": self.guide.url,
                 "total_steps": len(self.guide.steps),
+                "tools": self.guide.tools,
+                "difficulty": self.guide.difficulty,
+                "time_required": self.guide.time_required,
             },
             "step": {
                 "number": step.number,

@@ -7,12 +7,16 @@ import Session from "./components/Session";
 
 type Connection = { serverUrl: string; token: string };
 
+// "" lets Handy follow whatever language you speak.
+const LANGUAGES = ["", "English", "Spanish", "Hindi", "Telugu", "Tamil", "Mandarin Chinese", "French", "German", "Portuguese", "Japanese", "Korean", "Arabic"];
+
 export default function Home() {
   const [conn, setConn] = useState<Connection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [needsCode, setNeedsCode] = useState(false);
   const [code, setCode] = useState("");
+  const [language, setLanguage] = useState("");
 
   async function start() {
     setError(null);
@@ -21,7 +25,7 @@ export default function Home() {
       const res = await fetch("/api/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, language }),
       });
       const data = await res.json();
       if (data.needsCode) setNeedsCode(true);
@@ -44,6 +48,16 @@ export default function Home() {
           <li>Say what you want to fix. Handy finds the iFixit guide.</li>
           <li>It talks you through each step and checks your work.</li>
         </ol>
+        <label className="lang">
+          Language{" "}
+          <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+            {LANGUAGES.map((l) => (
+              <option key={l} value={l}>
+                {l || "Match how I speak"}
+              </option>
+            ))}
+          </select>
+        </label>
         {needsCode && (
           <input
             className="code"

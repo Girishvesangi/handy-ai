@@ -14,9 +14,10 @@ export async function POST(req: Request) {
     );
   }
 
+  const body = await req.json().catch(() => ({}));
+
   // Optional gate for public demos, so strangers can't run up your API bill.
   if (ACCESS_CODE) {
-    const body = await req.json().catch(() => ({}));
     if (body.code !== ACCESS_CODE) {
       return NextResponse.json({ error: "Access code required", needsCode: true }, { status: 401 });
     }
@@ -27,9 +28,13 @@ export async function POST(req: Request) {
   const roomName = `handy-${suffix}`;
   const identity = `user-${suffix}`;
 
+  // The agent reads the preferred language from the participant's metadata.
+  const language = typeof body.language === "string" ? body.language.slice(0, 40) : "";
+
   const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
     identity,
     ttl: "15m",
+    metadata: JSON.stringify({ language }),
   });
   at.addGrant({ roomJoin: true, room: roomName, canPublish: true, canSubscribe: true });
 

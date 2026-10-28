@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import type { GuideState } from "../lib/types";
+import type { ActiveGuide } from "../lib/types";
 
-type Active = Exclude<GuideState, { guide: null }>;
-
-export default function StepCard({ state }: { state: Active }) {
+export default function StepCard({ state }: { state: ActiveGuide }) {
   const { guide, step, completed } = state;
   const [zoomed, setZoomed] = useState(false);
   const photo = step.image_urls[0];
