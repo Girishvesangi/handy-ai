@@ -6,7 +6,12 @@
 - **RAG over repair guides**: hybrid search (BM25 + Gemini embeddings, fused with reciprocal rank fusion) over iFixit laptop guides.
 - **Agent with tools**: finds guides, tracks the current step, moves forward and back, and checks your work.
 - **Step checker**: a separate vision call compares your camera frame with the guide's reference photo and returns done / not done / wrong / unclear. A background watcher runs it every few seconds and speaks up only when it is confident something is wrong.
+- **Pointer**: Handy draws a box on your camera view around the part to touch next ("RAM module"), at every new step or when you ask "where is it?".
+- **Live captions**, a **tools checklist** before you start, and a **repair recap** at the end (steps confirmed, time, mistakes caught).
+- **Any language**: speak in your language, or pick one, and Handy translates the English guides as it reads them.
+- **Bring your own manual**: turn a PDF service manual (Dell, Lenovo, HP...) into step-by-step guides with one command.
 - **Evals**: retrieval hit@k and MRR, step-check accuracy, mistake catch rate, false alarm rate, and latency, shown on an `/evals` page.
+- **Tracing** (optional): send every session's timeline to Langfuse through OpenTelemetry.
 
 ## How it works
 
@@ -15,8 +20,9 @@
  ┌───────────────────────┐   WebRTC via   ┌──────────────────────────────────────┐
  │ camera + mic          │ ─────────────▶ │ Gemini Live (voice in/out, sees ~1fps) │
  │ step card + photo     │  LiveKit Cloud │   tools: find_guides, start_guide,    │
- │ verdict banner        │ ◀───────────── │          next/previous/go_to_step,    │
- │ Back / Check / Next   │  data + RPC    │          check_my_work                │
+ │ pointer box, captions │ ◀───────────── │          next/previous/go_to_step,    │
+ │ verdict, recap        │  data + RPC    │          check_my_work, point_to_part │
+ │ Back/Where?/Check/Next│                │                                       │
  └───────────────────────┘                │ GuideIndex (BM25 + embeddings)        │
                                           │ StepChecker (Gemini Flash vision)     │
                                           │ watcher loop, JSONL session logs      │
@@ -70,6 +76,15 @@ Open http://localhost:3000, press **Start a repair**, allow camera and mic, and 
 
 **On your phone:** phone browsers only allow the camera on `https` pages. Run a tunnel such as `cloudflared tunnel --url http://localhost:3000` (or `npx localtunnel --port 3000`) and open the https link on your phone, or deploy (see [docs/deploy.md](docs/deploy.md)).
 
+## Add a PDF service manual
+
+```bash
+cd agent
+python -m handy.pdf_ingest ~/Downloads/latitude-5490-manual.pdf --device "Dell Latitude 5490" --url https://link-to-the-manual.pdf
+```
+
+Gemini reads the manual, pulls out each removal procedure as a guide, and adds them to `data/guides.json` next to the iFixit guides. Restart the agent to use them.
+
 ## Evals
 
 ```bash
@@ -84,7 +99,7 @@ The proxy set only tests whether the checker can match a photo to its step. Real
 
 ## Configuration
 
-All settings live in `agent/.env` (see `.env.example`): the models (`GEMINI_LIVE_MODEL`, `CHECKER_MODEL`, `EMBED_MODEL`), how often the watcher checks (`WATCH_INTERVAL_S`, `0` turns it off), and how confident it must be before interrupting (`WARN_CONFIDENCE`).
+All settings live in `agent/.env` (see `.env.example`): the models (`GEMINI_LIVE_MODEL`, `CHECKER_MODEL`, `EMBED_MODEL`), how often the watcher checks (`WATCH_INTERVAL_S`, `0` turns it off), how confident it must be before interrupting (`WARN_CONFIDENCE`), whether to point at parts automatically (`POINTER_AUTO`), and Langfuse keys for tracing. The web app takes an optional `ACCESS_CODE` in `web/.env.local`.
 
 ## Credits and license
 

@@ -23,6 +23,8 @@ def agent(guides, tmp_path, monkeypatch):
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
     import agent as agent_module
 
+    monkeypatch.setattr(agent_module, "POINTER_AUTO", False)  # no background vision calls in tests
+
     room = SimpleNamespace(on=lambda *a, **k: None, remote_participants={}, local_participant=FakeParticipant())
     a = agent_module.Handy(room, GuideIndex(guides), EventLog("test", tmp_path))
     a.log_dir = tmp_path
@@ -43,10 +45,13 @@ async def test_find_start_and_walk(agent):
     assert "Step 3 of 3" in await agent.go_to_step(None, 3)
     assert "last step" in await agent.next_step(None)
 
-    topics = [t for t, _ in agent.room.local_participant.sent]
-    assert topics and set(topics) == {"handy.state"}
-    last_state = agent.room.local_participant.sent[-1][1]
-    assert last_state["guide"]["id"] == 1001
+    sent = agent.room.local_participant.sent
+    assert {t for t, _ in sent} == {"handy.state", "handy.recap"}
+    recap = sent[-1][1]
+    assert sent[-1][0] == "handy.recap"
+    assert recap["guide_id"] == 1001 and recap["total_steps"] == 3
+    state = [m for t, m in sent if t == "handy.state"][-1]
+    assert state["guide"]["tools"] == ["Phillips #1 Screwdriver", "Spudger"]
 
 
 @pytest.mark.asyncio
@@ -92,3 +97,39 @@ async def test_check_survives_checker_errors(agent):
     agent.checker.check = broken
     result = json.loads(await agent.check_my_work(None))
     assert result["verdict"] == "unclear"
+
+
+@pytest.mark.asyncio
+async def test_point_to_part(agent, monkeypatch):
+    import agent as agent_module
+    from handy.checker import Pointer
+
+    assert await agent.point_to_part(None) == "No guide is active."
+    await agent.start_guide(None, 1001)
+    agent.frames.jpeg = lambda: b"jpeg"
+    agent.frames.size = lambda: (720, 1280)
+
+    async def fake_locate(checker, guide, step, frame):
+        return Pointer(True, "battery connector", [0.1, 0.2, 0.3, 0.4], 500)
+
+    monkeypatch.setattr(agent_module, "locate_part", fake_locate)
+    reply = await agent.point_to_part(None)
+    assert "battery connector" in reply
+    topic, msg = agent.room.local_participant.sent[-1]
+    assert topic == "handy.pointer"
+    assert msg["box"] == [0.1, 0.2, 0.3, 0.4] and msg["frame_w"] == 720 and msg["step"] == 1
+
+
+@pytest.mark.asyncio
+async def test_mistakes_show_up_in_recap(agent):
+    await agent.start_guide(None, 1001)
+    agent.frames.jpeg = lambda: b"jpeg"
+
+    async def wrong(guide, step, frame, use_reference=True):
+        return CheckResult("wrong", 0.9, "Ribbon cable lifted first.", "Unplug the battery first.", 800)
+
+    agent.checker.check = wrong
+    await agent.check_my_work(None)
+    recap = agent.tracker.recap()
+    assert recap["checks"] == 1
+    assert recap["mistakes_caught"] == [{"step": 1, "reason": "Ribbon cable lifted first."}]

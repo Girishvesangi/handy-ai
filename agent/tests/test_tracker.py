@@ -36,3 +36,17 @@ def test_state_for_the_web_app(guides):
     assert s["step"]["image_urls"] == ["https://img.example/1.large"]
     t.stop()
     assert not t.active
+
+
+def test_recap_counts_checks_and_mistakes(guides):
+    t = StepTracker()
+    assert t.recap() == {}
+    t.start(guides[0])
+    t.record_check("done", "ok")
+    t.next()
+    t.record_check("wrong", "Pried the battery with a metal tool.")
+    r = t.recap()
+    assert r["checks"] == 2
+    assert r["steps_completed"] == 1
+    assert r["mistakes_caught"] == [{"step": 2, "reason": "Pried the battery with a metal tool."}]
+    assert r["minutes"] >= 0

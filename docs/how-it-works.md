@@ -38,6 +38,7 @@ The model can't search or remember the current step by itself, so the agent give
 | `start_guide(guide_id)` | Starts the step tracker at step 1, returns the tools needed and step 1 |
 | `next_step`, `previous_step`, `go_to_step`, `repeat_step` | Move through the guide |
 | `check_my_work()` | Runs the step checker on the latest camera frame |
+| `point_to_part()` | Finds the part for this step in the camera view and draws a box on the user's screen |
 | `stop_guide()` | Ends the current guide |
 
 After each change, the agent sends the new state to the browser as a data message on topic `handy.state`, and the step card redraws. The **Back, Check and Next buttons** go the other way. They call the agent over **RPC** (`handy.next` and so on), which runs the same code as the voice tools and then asks the model to say the new step out loud. Buttons matter because a workshop can be noisy.
@@ -76,7 +77,29 @@ The checker runs beside the conversation, never in its path, so the voice stays 
 
 *Interview angle:* fast and slow paths, structured outputs, and tuning a confidence threshold to trade missed mistakes against false alarms.
 
-## 6. Measuring it (evals)
+## 6. Pointing at the part
+
+"Which connector?" is the most common question in a repair, and words are bad at answering it. `locate_part` in `handy/checker.py` sends the latest frame and the step text to Gemini Flash and asks for a **bounding box** (`box_2d`, normalized 0 to 1000, which is Gemini's convention) around the one part to act on. The agent runs it in the background whenever a new step starts (`POINTER_AUTO`), and again when the user asks "where?" by voice or with the button.
+
+Two details make the box land in the right place:
+
+- **Rotation.** Phones often send frames sideways with a rotation flag rather than rotating the pixels. `handy/frames.py` turns each frame upright before encoding, and reports the upright width and height.
+- **Cropping.** The web app shows the camera with `object-fit: cover`, which crops the edges to fill the screen. `PointerOverlay.tsx` redoes that crop math (scale by the larger ratio, then centre) to map the box onto screen pixels.
+
+The box fades after 8 seconds, because the camera moves and an old box drifts off target. A box about an earlier step is dropped as soon as the step changes.
+
+*Interview angle:* grounding (getting coordinates, not just text, from a vision model) and the unglamorous coordinate bugs that make or break a visual feature.
+
+## 7. The rest of the experience
+
+- **Live captions.** Gemini Live transcribes both sides. LiveKit streams the text to the room, and `Captions.tsx` shows the latest line from each speaker. This helps in a noisy room and makes the demo video readable with the sound off.
+- **Tools checklist.** At step 1, the app lists the guide's tools with tick boxes, plus difficulty, time, and a power-off reminder.
+- **Repair recap.** The tracker counts checks and records each mistake the checker caught. On the last step the agent sends a recap on topic `handy.recap`. If the user presses End early, the app builds the same recap from the messages it has seen.
+- **Any language.** The landing page has a language picker. The choice rides in the LiveKit token's participant metadata, and the agent reads it with `ctx.wait_for_participant()` and updates its instructions. By default Handy replies in whatever language the user speaks and translates the English guides as it reads them.
+- **PDF manuals.** `python -m handy.pdf_ingest` uploads a service manual to Gemini and asks for structured JSON: each procedure's title, tools, steps and start page. These become guides with negative ids, so they never clash with iFixit's.
+- **Tracing.** LiveKit Agents emits OpenTelemetry spans for every turn, model call and tool call. `handy/tracing.py` sends them to Langfuse when keys are set, giving a per-session timeline of where the latency goes.
+
+## 8. Measuring it (evals)
 
 Every session writes a JSONL log in `agent/logs/` with each search, step change and check, with timings. The `agent/evals` package measures three things:
 
@@ -92,14 +115,13 @@ Be honest about the **proxy set**. It only tests whether the checker can match a
 
 *Interview angle:* building evals before tuning, proxy versus real metrics, and why false alarms matter as much as accuracy for an assistant that interrupts.
 
-## 7. Testing and shipping
+## 9. Testing and shipping
 
-- `agent/tests/` holds 32 unit tests for parsing, search, the tracker, the checker, the eval metrics, and the agent's tools (using a fake room and a fake model). GitHub Actions runs them and builds the web app on every push.
+- `agent/tests/` holds 41 unit tests for parsing, search, the tracker, the checker, the pointer and frame rotation, PDF ingest, the eval metrics, and the agent's tools (using a fake room and a fake model). GitHub Actions runs them and builds the web app on every push.
 - `agent/Dockerfile` packages the agent. See [deploy.md](deploy.md) for LiveKit Cloud or Fly.io for the agent, and Vercel for the web app.
 
 ## Ideas for next steps
 
-- Draw an arrow on the camera view pointing at the part to touch next, using bounding boxes from the vision model.
-- Upload any PDF service manual and index it like an iFixit guide.
-- Speak and listen in other languages (Gemini Live supports many).
-- Add Langfuse or OpenTelemetry tracing for a per-call latency and cost dashboard.
+- Track the pointer box between vision calls (for example with optical flow in the browser) so it follows the part as the camera moves.
+- Let users upload a PDF manual from the web app, not only the command line.
+- Save repair history per user so they can resume a half-finished repair.
